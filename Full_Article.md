@@ -3,6 +3,17 @@
 
 Hey everyone, I'd like to share my experience with Terraform and AWS. In this post I'll describe the resources I used to build a infrastructure on AWS and deploy a NodeJS application on it.
 
+- [Resources](https://github.com/abudri/learn-terraform-ecs/blob/main/Full_Article.md#resources)
+- [Terraform Initial Configuration](https://github.com/abudri/learn-terraform-ecs/blob/main/Full_Article.md#terraform-initial-configuration)
+- [VPC and Networking](https://github.com/abudri/learn-terraform-ecs/blob/main/Full_Article.md#vpc-and-networking)
+- [Container Registry and ECS Cluster](https://github.com/abudri/learn-terraform-ecs/blob/main/Full_Article.md#container-registry-and-ecs-cluster)
+- [Application Load Balancer](https://github.com/abudri/learn-terraform-ecs/blob/main/Full_Article.md#application-load-balancer)
+- [Autoscaling](https://github.com/abudri/learn-terraform-ecs/blob/main/Full_Article.md#autoscaling)
+- [Variables](https://github.com/abudri/learn-terraform-ecs/blob/main/Full_Article.md#variables)
+- [Thanks](https://github.com/abudri/learn-terraform-ecs/blob/main/Full_Article.md#Thanks)
+
+
+
 ## Resources
 
 The application I needed to deploy is a monolithic NodeJS application, so, to deploy and make it scalable I decided to use containers with an autoscaling tool to scale the application based on CPU and Memory usage. To build this environment on AWS I used the services listed below:
@@ -18,7 +29,7 @@ The application I needed to deploy is a monolithic NodeJS application, so, to de
 
 The Terraform configuration I used was quite simple. The first step is create a Bucket on AWS S3 to store the Terraform State. It's not required but, it'll make our life easier if someone else needs to maintain this infrastructure. This is the `main.tf` file with this configuration.
 
-```
+```terraform
 # main.tf | Main Configuration
 
 terraform {
@@ -52,7 +63,7 @@ UPDATE: With this initial configuration, just run `terraform init`.
 
 Let's create a VPC and configure some Networking resources we're gonna use further. The sample code bellow will create a VPC.
 
-```
+```terraform
 # vpc.tf | VPC Configuration
 
 resource "aws_vpc" "aws-vpc" {
@@ -69,7 +80,7 @@ resource "aws_vpc" "aws-vpc" {
 
 For Networking, it is necessary to create Public and Private Subnets within the VPC, also a Internet Gateway and Route Tables for Public Subnets. The sample bellow will create these resources
 
-```
+```terraform
 # networking.tf | Network Configuration
 
 resource "aws_internet_gateway" "aws-igw" {
@@ -133,7 +144,7 @@ resource "aws_route_table_association" "public" {
 
 Now, it's time to create the Container Registry and the ECS Cluster. First let's create the Container Registry with the code bellow:
 
-```
+```terraform
 # ecr.tf | Elastic Container Repository
 
 resource "aws_ecr_repository" "aws-ecr" {
@@ -152,7 +163,7 @@ Now we're going to create the ECS Cluster, Service and Task Definition.A service
 
 Before we create the ECS Cluster, we need to create an IAM policy to enable the service to pull the image from ECR.
 
-```
+```terraform
 # iam.tf | IAM Role Policies
 
 resource "aws_iam_role" "ecsTaskExecutionRole" {
@@ -184,7 +195,7 @@ resource "aws_iam_role_policy_attachment" "ecsTaskExecutionRole_policy" {
 
 Now let's create what we need for ECS. First we create the ECS Cluster:
 
-```
+```terraform
 resource "aws_ecs_cluster" "aws-ecs-cluster" {
   name = "${var.app_name}-${var.app_environment}-cluster"
   tags = {
@@ -197,7 +208,7 @@ resource "aws_ecs_cluster" "aws-ecs-cluster" {
 
 I created a Log Group on CloudWatch to get the containers logs.
 
-```
+```terraform
 resource "aws_cloudwatch_log_group" "log-group" {
   name = "${var.app_name}-${var.app_environment}-logs"
 
@@ -271,7 +282,7 @@ An observation about the Task Definition is that I'm using the Terraform `data`
 
 Ok, now let's create the ECS Service.
 
-```
+```terraform
 resource "aws_ecs_service" "aws-ecs-service" {
   name                 = "${var.app_name}-${var.app_environment}-ecs-service"
   cluster              = aws_ecs_cluster.aws-ecs-cluster.id
@@ -303,7 +314,7 @@ resource "aws_ecs_service" "aws-ecs-service" {
 
 I also defined a Security Group to avoid external connections to the containers.
 
-```
+```terraform
 resource "aws_security_group" "service_security_group" {
   vpc_id = aws_vpc.aws-vpc.id
 
@@ -334,7 +345,7 @@ resource "aws_security_group" "service_security_group" {
 
 The next step is to setup a Load Balancer. As you could notice on the ECS configuration is that there's a reference to a `load_balancer` on it.
 
-```
+```terraform
 resource "aws_alb" "application_load_balancer" {
   name               = "${var.app_name}-${var.app_environment}-alb"
   internal           = false
@@ -352,7 +363,7 @@ resource "aws_alb" "application_load_balancer" {
 
 Now let's add a security group for the Load Balancer
 
-```
+```terraform
 resource "aws_security_group" "load_balancer_security_group" {
   vpc_id = aws_vpc.aws-vpc.id
 
@@ -381,7 +392,7 @@ resource "aws_security_group" "load_balancer_security_group" {
 
 We also need to create a Load Balancer Target Group, it will relate the Load Balancer with the Containers.
 
-```
+```terraform
 resource "aws_lb_target_group" "target_group" {
   name        = "${var.app_name}-${var.app_environment}-tg"
   port        = 80
@@ -411,7 +422,7 @@ One very important thing here is the attribute `path` within `health_check`. 
 
 At last let's create a HTTP listener for out Load Balancer.
 
-```
+```terraform
 resource "aws_lb_listener" "listener" {
   load_balancer_arn = aws_alb.application_load_balancer.id
   port              = "80"
@@ -429,7 +440,7 @@ resource "aws_lb_listener" "listener" {
 
 So, autoscaling is essential for the application I'm working on. To configure it on AWS I just needed to create an Autoscaling Target and two simple Autoscaling Policies. One to scale by CPU usage and another one for Memory usage.
 
-```
+```terraform
 # autoscaling.tf | Auto Scaling Group
 
 resource "aws_appautoscaling_target" "ecs_target" {
@@ -480,7 +491,7 @@ So, the application will scale up if the memory or the cpu usage reaches 80% of 
 
 I believe you noticed we used a lot of variables for the Terraform configuration files. To use variables I created a file called `variables.tf`. This file only have the variables definitions.
 
-```
+```terraform
 # variables.tf | Auth and Application variables
 
 variable "aws_access_key" {
